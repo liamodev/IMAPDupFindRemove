@@ -229,6 +229,9 @@ export class IMAPClient {
           const traverse = async (box: any, prefix = ''): Promise<void> => {
             try {
               console.log('Processing box:', box);
+              console.log('Box name:', box.name);
+              console.log('Box children:', box.children);
+              
               // Skip boxes without a valid name
               if (!box.name || box.name === 'unknown' || box.name === '') {
                 console.log('Skipping box with invalid name:', box.name);
@@ -246,21 +249,31 @@ export class IMAPClient {
                 console.log(`Folder ${name} has ${emailCount} emails`);
                 // Add folder regardless of email count for now
                 folders.push({ name, emailCount, path });
+                console.log(`Added folder: ${name} with ${emailCount} emails`);
+              } else {
+                console.log(`Skipping folder ${name} - invalid name`);
               }
               
               // Handle children - check if it's an array or object
               if (box.children) {
                 console.log(`Folder ${name} has children:`, typeof box.children, Array.isArray(box.children));
+                console.log('Children keys:', Object.keys(box.children));
+                
                 if (Array.isArray(box.children)) {
+                  console.log('Processing children as array');
                   for (const child of box.children) {
                     await traverse(child, name + '.');
                   }
                 } else if (typeof box.children === 'object') {
                   // Handle case where children might be an object instead of array
+                  console.log('Processing children as object');
                   for (const child of Object.values(box.children)) {
+                    console.log('Processing child:', child);
                     await traverse(child as any, name + '.');
                   }
                 }
+              } else {
+                console.log(`Folder ${name} has no children`);
               }
             } catch (error) {
               console.error('Error traversing folder:', error);
@@ -270,7 +283,31 @@ export class IMAPClient {
           try {
             console.log('Processing boxes:', Object.values(boxes));
             for (const box of Object.values(boxes)) {
-              await traverse(box as any);
+              console.log('Processing main box:', box);
+              
+              // Handle the main INBOX box (which might not have a name)
+              if (!(box as any).name && (box as any).children) {
+                console.log('Processing INBOX with children');
+                // Process INBOX first
+                const inboxCount = await this.getEmailCount('INBOX');
+                console.log(`INBOX has ${inboxCount} emails`);
+                if (inboxCount > 0) {
+                  folders.push({ name: 'INBOX', emailCount: inboxCount, path: 'INBOX' });
+                }
+                
+                // Then process all children
+                console.log('Processing INBOX children:', Object.keys((box as any).children));
+                for (const [childName, childBox] of Object.entries((box as any).children)) {
+                  console.log(`Processing child: ${childName}`);
+                  const fullName = `INBOX.${childName}`;
+                  const emailCount = await this.getEmailCount(fullName);
+                  console.log(`Folder ${fullName} has ${emailCount} emails`);
+                  folders.push({ name: fullName, emailCount, path: fullName });
+                }
+              } else {
+                // Process normal boxes with names
+                await traverse(box as any);
+              }
             }
             
             // Filter out any remaining invalid folders
