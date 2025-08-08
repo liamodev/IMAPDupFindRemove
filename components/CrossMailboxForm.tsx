@@ -173,13 +173,13 @@ export default function CrossMailboxForm({ onSuccess, onError, setIsLoading }: C
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Mailbox ID
+            Friendly Mailbox Name
           </label>
           <input
             type="text"
             value={formData[mailbox].mailboxId}
             onChange={(e) => handleChange(mailbox, 'mailboxId', e.target.value)}
-            placeholder="e.g., gmail-account-1"
+            placeholder="e.g., My Gmail Account, Work Outlook"
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />

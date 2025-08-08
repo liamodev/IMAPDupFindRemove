@@ -1,5 +1,6 @@
 import pool from './database';
 import { IMAPClient, EmailData, IMAPConfig } from './imap';
+import { ProgressTracker } from './progress-tracker';
 
 export interface DuplicateEmail {
   id: number;
@@ -17,12 +18,17 @@ export interface DuplicateEmail {
 }
 
 export class EmailService {
-  static async saveEmails(emails: EmailData[]): Promise<void> {
+  static async saveEmails(emails: EmailData[], progressTracker?: ProgressTracker): Promise<void> {
+    if (progressTracker) {
+      progressTracker.savingEmails(emails.length);
+    }
+    
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       
-      for (const email of emails) {
+      for (let i = 0; i < emails.length; i++) {
+        const email = emails[i];
         await client.query(`
           INSERT INTO emails (message_id, subject, from_address, to_address, date, folder_name, mailbox_id, content_hash, uid, size)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -48,6 +54,10 @@ export class EmailService {
           email.uid,
           email.size
         ]);
+        
+        if (progressTracker && i % 10 === 0) {
+          progressTracker.processingEmails(i + 1, emails.length);
+        }
       }
       
       await client.query('COMMIT');
@@ -233,24 +243,57 @@ export class EmailService {
     }
   }
 
-  static async scanMailbox(config: IMAPConfig, mailboxId: string): Promise<EmailData[]> {
-    const client = new IMAPClient(config);
+  static async scanMailbox(config: IMAPConfig, mailboxId: string, progressTracker?: ProgressTracker): Promise<EmailData[]> {
+    const client = new IMAPClient(config, progressTracker);
     await client.connect();
     
     try {
       const folders = await client.getFolders();
       const allEmails: EmailData[] = [];
       
-      for (const folder of folders) {
+      for (let i = 0; i < folders.length; i++) {
+        const folder = folders[i];
         try {
+          if (progressTracker) {
+            progressTracker.scanningFolder(folder, i + 1, folders.length);
+          }
+          
           const emails = await client.getEmailsFromFolder(folder, mailboxId);
           allEmails.push(...emails);
         } catch (error) {
           console.error(`Error scanning folder ${folder}:`, error);
+          if (progressTracker) {
+            progressTracker.error(`Error scanning folder ${folder}: ${error}`);
+          }
         }
       }
       
+      if (progressTracker) {
+        progressTracker.complete(allEmails.length);
+      }
+      
       return allEmails;
+    } finally {
+      client.disconnect();
+    }
+  }
+
+  static async getFolderStructure(config: IMAPConfig, progressTracker?: ProgressTracker): Promise<{ name: string; emailCount: number; path: string }[]> {
+    const client = new IMAPClient(config, progressTracker);
+    await client.connect();
+    
+    try {
+      if (progressTracker) {
+        progressTracker.connecting('Getting folder structure...');
+      }
+      
+      const folderStructure = await client.getFolderStructure();
+      
+      if (progressTracker) {
+        progressTracker.complete(folderStructure.length);
+      }
+      
+      return folderStructure;
     } finally {
       client.disconnect();
     }
